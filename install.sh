@@ -207,11 +207,7 @@ build_install() {
     
     cd $build_dir
     
-    # 更新到官方最新 sing-box
-    echo -e "${green}更新 sing-box 到官方最新版本...${plain}"
-    sed -i 's|replace github.com/sagernet/sing-box.*|replace github.com/sagernet/sing-box v1.13.0 => github.com/sagernet/sing-box v1.13.0-alpha.29|' go.mod
-    
-    # 更新依赖
+    # 更新依赖 (仓库已配置使用 wyx2685/sing-box_mod 修改版)
     echo -e "${green}更新依赖...${plain}"
     export PATH=$PATH:/usr/local/go/bin
     go mod tidy
@@ -222,9 +218,10 @@ build_install() {
         exit 1
     fi
     
-    # 编译
+    # 编译 (需要添加 build tags 来包含各个 core)
+    # 注意: hysteria2 tag 暂时有兼容性问题，如需 hy2 请使用内置的 sing core
     echo -e "${green}编译中 (可能需要几分钟)...${plain}"
-    GOEXPERIMENT=jsonv2 CGO_ENABLED=0 go build -ldflags="-s -w" -o V2bX .
+    GOEXPERIMENT=jsonv2 CGO_ENABLED=0 go build -tags "sing xray" -ldflags="-s -w" -o V2bX .
     if [[ $? -ne 0 ]]; then
         echo -e "${red}编译失败${plain}"
         cd /
@@ -614,13 +611,230 @@ ${green}V2bX 安装脚本${plain}
 
 选项:
     无参数          下载预编译版本安装
-    -b, --build    从源码编译安装 (使用官方最新 sing-box 内核)
+    -b, --build    从源码编译安装 (使用最新 sing-box 内核)
     -h, --help     显示帮助信息
 
 示例:
     bash $0           # 下载安装
     bash $0 -b        # 编译安装 (推荐，可解决 anytls 断流)
 "
+}
+
+# 交互式生成配置文件
+generate_config() {
+    echo -e "${green}========================================${plain}"
+    echo -e "${green}       V2bX 节点配置生成向导${plain}"
+    echo -e "${green}========================================${plain}"
+    echo -e ""
+    
+    # 输入 API 信息
+    read -rp "请输入面板地址 (如 https://panel.example.com): " ApiHost
+    read -rp "请输入面板 API Key: " ApiKey
+    
+    # 节点列表
+    nodes_config=""
+    cores_xray=false
+    cores_sing=false
+    
+    while true; do
+        echo -e ""
+        echo -e "${green}添加节点配置${plain}"
+        
+        # 选择核心类型
+        echo -e "${yellow}请选择节点核心类型：${plain}"
+        echo -e "  ${green}1.${plain} sing (支持 anytls/vless/vmess/trojan/ss/hysteria/hysteria2/tuic)"
+        echo -e "  ${green}2.${plain} xray (支持 vless/vmess/trojan/ss)"
+        read -rp "请输入 [1-2]: " core_choice
+        
+        case "$core_choice" in
+            1) core="sing"; cores_sing=true ;;
+            2) core="xray"; cores_xray=true ;;
+            *) core="sing"; cores_sing=true ;;
+        esac
+        
+        # 输入节点 ID
+        while true; do
+            read -rp "请输入节点 Node ID: " NodeID
+            if [[ "$NodeID" =~ ^[0-9]+$ ]]; then
+                break
+            else
+                echo -e "${red}错误：请输入正确的数字${plain}"
+            fi
+        done
+        
+        # 选择节点类型
+        echo -e "${yellow}请选择节点协议类型：${plain}"
+        echo -e "  ${green}1.${plain} vmess"
+        echo -e "  ${green}2.${plain} vless"
+        echo -e "  ${green}3.${plain} trojan"
+        echo -e "  ${green}4.${plain} shadowsocks"
+        if [ "$core" == "sing" ]; then
+            echo -e "  ${green}5.${plain} hysteria"
+            echo -e "  ${green}6.${plain} hysteria2"
+            echo -e "  ${green}7.${plain} tuic"
+            echo -e "  ${green}8.${plain} anytls"
+        fi
+        read -rp "请输入 [1-8]: " type_choice
+        
+        case "$type_choice" in
+            1) NodeType="vmess" ;;
+            2) NodeType="vless" ;;
+            3) NodeType="trojan" ;;
+            4) NodeType="shadowsocks" ;;
+            5) NodeType="hysteria" ;;
+            6) NodeType="hysteria2" ;;
+            7) NodeType="tuic" ;;
+            8) NodeType="anytls" ;;
+            *) NodeType="vmess" ;;
+        esac
+        
+        # 证书配置
+        certmode="none"
+        certdomain=""
+        
+        if [[ "$NodeType" == "vless" ]]; then
+            read -rp "是否为 Reality 节点? [y/n]: " isreality
+            if [[ "$isreality" != "y" && "$isreality" != "Y" ]]; then
+                read -rp "是否配置 TLS? [y/n]: " istls
+            fi
+        elif [[ "$NodeType" == "hysteria" || "$NodeType" == "hysteria2" || "$NodeType" == "tuic" || "$NodeType" == "anytls" ]]; then
+            istls="y"
+        else
+            read -rp "是否配置 TLS? [y/n]: " istls
+        fi
+        
+        if [[ "$istls" == "y" || "$istls" == "Y" ]] && [[ "$isreality" != "y" && "$isreality" != "Y" ]]; then
+            echo -e "${yellow}请选择证书模式：${plain}"
+            echo -e "  ${green}1.${plain} http - HTTP 自动申请 (域名需解析到本机)"
+            echo -e "  ${green}2.${plain} dns  - DNS API 申请 (需配置 DNS 服务商 API)"
+            echo -e "  ${green}3.${plain} self - 自签证书或已有证书"
+            read -rp "请输入 [1-3]: " cert_choice
+            
+            case "$cert_choice" in
+                1) certmode="http" ;;
+                2) certmode="dns" ;;
+                3) certmode="self" ;;
+                *) certmode="http" ;;
+            esac
+            
+            read -rp "请输入证书域名: " certdomain
+        fi
+        
+        # 生成节点配置
+        if [ -n "$nodes_config" ]; then
+            nodes_config="${nodes_config},"
+        fi
+        
+        node_json="{
+            \"Core\": \"$core\",
+            \"ApiHost\": \"$ApiHost\",
+            \"ApiKey\": \"$ApiKey\",
+            \"NodeID\": $NodeID,
+            \"NodeType\": \"$NodeType\",
+            \"Timeout\": 30,
+            \"ListenIP\": \"0.0.0.0\",
+            \"SendIP\": \"0.0.0.0\""
+        
+        if [ "$certmode" != "none" ]; then
+            node_json="$node_json,
+            \"CertConfig\": {
+                \"CertMode\": \"$certmode\",
+                \"CertDomain\": \"$certdomain\",
+                \"CertFile\": \"/etc/V2bX/fullchain.cer\",
+                \"KeyFile\": \"/etc/V2bX/cert.key\",
+                \"Email\": \"v2bx@github.com\"
+            }"
+        fi
+        
+        node_json="$node_json
+        }"
+        
+        nodes_config="${nodes_config}
+        ${node_json}"
+        
+        echo -e "${green}节点配置已添加！${plain}"
+        read -rp "是否继续添加节点? [y/n]: " continue_add
+        if [[ "$continue_add" != "y" && "$continue_add" != "Y" ]]; then
+            break
+        fi
+    done
+    
+    # 生成 Cores 配置
+    cores_config=""
+    if [ "$cores_sing" = true ]; then
+        cores_config='{
+            "Type": "sing",
+            "Name": "sing",
+            "Log": {
+                "Level": "error",
+                "Timestamp": true
+            },
+            "NTP": {
+                "Enable": false,
+                "Server": "time.apple.com",
+                "ServerPort": 123
+            },
+            "OriginalDest": true
+        }'
+    fi
+    
+    if [ "$cores_xray" = true ]; then
+        if [ -n "$cores_config" ]; then
+            cores_config="${cores_config},"
+        fi
+        cores_config="${cores_config}
+        {
+            \"Type\": \"xray\",
+            \"Name\": \"xray\",
+            \"Log\": {
+                \"Level\": \"warning\"
+            }
+        }"
+    fi
+    
+    # 写入配置文件
+    cat > /etc/V2bX/config.json << EOF
+{
+    "Log": {
+        "Level": "warning",
+        "Output": ""
+    },
+    "Cores": [
+        $cores_config
+    ],
+    "Nodes": [
+        $nodes_config
+    ]
+}
+EOF
+    
+    echo -e ""
+    echo -e "${green}========================================${plain}"
+    echo -e "${green}配置文件已生成: /etc/V2bX/config.json${plain}"
+    echo -e "${green}========================================${plain}"
+    echo -e ""
+    
+    # 显示配置
+    echo -e "${yellow}配置内容:${plain}"
+    cat /etc/V2bX/config.json
+    echo -e ""
+    
+    # 重启服务
+    read -rp "是否立即启动 V2bX? [y/n]: " start_now
+    if [[ "$start_now" == "y" || "$start_now" == "Y" ]]; then
+        if [[ -f /etc/init.d/V2bX ]]; then
+            service V2bX restart
+        else
+            systemctl restart V2bX
+        fi
+        sleep 2
+        check_status
+        if [[ $? == 0 ]]; then
+            echo -e "${green}V2bX 启动成功！${plain}"
+        else
+            echo -e "${red}V2bX 启动失败，请查看日志: V2bX log${plain}"
+        fi
+    fi
 }
 
 # 主程序
@@ -640,6 +854,15 @@ case "$1" in
         download_install
         ;;
 esac
+
+# 首次安装询问是否生成配置
+if [[ "$first_install" == "true" ]]; then
+    echo -e ""
+    read -rp "检测到首次安装，是否现在配置节点? [y/n]: " if_generate
+    if [[ "$if_generate" == "y" || "$if_generate" == "Y" ]]; then
+        generate_config
+    fi
+fi
 
 cd $cur_dir
 rm -f install.sh v2bx.sh
