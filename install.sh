@@ -8,10 +8,10 @@ plain='\033[0m'
 cur_dir=$(pwd)
 
 # ========== 配置项 ==========
-# 你的 GitHub 仓库（用于编译模式）
+# 你的 GitHub 仓库（用于编译模式和下载模式）
 GITHUB_REPO="awkys/V2bX"
-# 下载源（用于下载模式）
-DOWNLOAD_REPO="wyx2685/V2bX"
+# 下载源（备用，当你的仓库没有 release 时使用）
+DOWNLOAD_REPO="awkys/V2bX"
 # 你自己的二进制下载地址（可选，留空则从 GitHub 下载）
 CUSTOM_DOWNLOAD_URL=""
 # ============================
