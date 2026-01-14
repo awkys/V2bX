@@ -36,16 +36,15 @@ func (h *HookServer) RoutedConnection(_ context.Context, conn net.Conn, m adapte
 	}
 	taguuid := format.UserTag(m.Inbound, m.User)
 	ip := m.Source.Addr.String()
-	// 检查是否为 anytls 协议，anytls 对限速包装敏感，需要跳过限速逻辑
-	// anytls 有自己的 padding 和复用机制，限速包装会干扰其内部 TLS 操作导致断流
-	isAnytls := strings.Contains(m.Inbound, "-anytls:")
 	if b, r := l.CheckLimit(taguuid, ip, true, true); r {
 		conn.Close()
 		log.Error("[", m.Inbound, "] ", "Limited ", m.User, " by ip or conn")
 		return conn
-	} else if b != nil && !isAnytls {
-		// anytls 协议跳过速率限制包装，避免断流
-		conn = rate.NewConnRateLimiter(conn, b)
+	} else if b != nil {
+		// 临时禁用所有协议的限速包装，用于排查断流根因
+		// 如果禁用后不再超时，说明问题在限速逻辑
+		// conn = rate.NewConnRateLimiter(conn, b)
+		_ = b // 避免编译器报错
 	}
 	if l != nil {
 		destStr := m.Destination.AddrString()
