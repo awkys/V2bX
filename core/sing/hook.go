@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 
 	"github.com/InazumaV/V2bX/common/format"
@@ -41,10 +40,7 @@ func (h *HookServer) RoutedConnection(_ context.Context, conn net.Conn, m adapte
 		log.Error("[", m.Inbound, "] ", "Limited ", m.User, " by ip or conn")
 		return conn
 	} else if b != nil {
-		// 临时禁用所有协议的限速包装，用于排查断流根因
-		// 如果禁用后不再超时，说明问题在限速逻辑
-		// conn = rate.NewConnRateLimiter(conn, b)
-		_ = b // 避免编译器报错
+		conn = rate.NewConnRateLimiter(conn, b)
 	}
 	if l != nil {
 		destStr := m.Destination.AddrString()
