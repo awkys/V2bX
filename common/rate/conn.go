@@ -19,13 +19,22 @@ type Conn struct {
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
-	c.limiter.Wait(int64(len(b)))
-	return c.Conn.Read(b)
+	// 先读取数据，然后根据实际读取到的字节数进行限速
+	// 修复：之前的逻辑是先等待整个缓冲区大小的令牌，会导致虚假限速和超时断流
+	n, err = c.Conn.Read(b)
+	if n > 0 {
+		c.limiter.Wait(int64(n))
+	}
+	return n, err
 }
 
 func (c *Conn) Write(b []byte) (n int, err error) {
-	c.limiter.Wait(int64(len(b)))
-	return c.Conn.Write(b)
+	// 先写入数据，然后根据实际写入的字节数进行限速
+	n, err = c.Conn.Write(b)
+	if n > 0 {
+		c.limiter.Wait(int64(n))
+	}
+	return n, err
 }
 
 /*
